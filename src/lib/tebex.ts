@@ -105,8 +105,19 @@ export async function testConnection(token: string): Promise<{ ok: true; name: s
 // ---------- baskets ----------
 const acct = () => `${headlessBase()}/api/accounts/${encodeURIComponent(tebexToken())}`;
 
-export async function createBasket(completeUrl: string, cancelUrl: string): Promise<TebexBasket> {
-  return unwrap(await request(`${acct()}/baskets`, { method: "POST", body: JSON.stringify({ complete_url: completeUrl, cancel_url: cancelUrl, complete_auto_redirect: true }) }));
+export async function createBasket(completeUrl: string, cancelUrl: string, opts: { username?: string; ip?: string } = {}): Promise<TebexBasket> {
+  // Sending the visitor's IP (so the basket is not attributed to this server) requires the private key as Basic auth.
+  const { privateKey } = tebexSecrets();
+  const withIp = !!opts.ip && !!privateKey;
+  const body = {
+    complete_url: completeUrl,
+    cancel_url: cancelUrl,
+    complete_auto_redirect: true,
+    ...(opts.username ? { username: opts.username } : {}),
+    ...(withIp ? { ip_address: opts.ip } : {}),
+  };
+  const headers: Record<string, string> = withIp ? { Authorization: `Basic ${Buffer.from(`${tebexToken()}:${privateKey}`).toString("base64")}` } : {};
+  return unwrap(await request(`${acct()}/baskets`, { method: "POST", body: JSON.stringify(body), headers }));
 }
 export async function getBasket(ident: string): Promise<TebexBasket> {
   return unwrap(await request(`${acct()}/baskets/${encodeURIComponent(ident)}`));

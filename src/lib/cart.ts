@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isIP } from "node:net";
 import { cookies, headers } from "next/headers";
 import { findProduct, getCatalog } from "./catalog";
 import { sign } from "./crypto";
@@ -19,6 +20,8 @@ export type CartView = {
   needsAuth: boolean;
   username: string;
   error?: string;
+  /** "username": a valid Minecraft username is needed (or the one given was refused) before anything can be added. */
+  errorCode?: "username";
 };
 
 const BASKET_COOKIE = "sf_basket";
@@ -95,9 +98,19 @@ function basketToView(b: tebex.TebexBasket, currency: string): CartView {
   };
 }
 
-async function newBasket(): Promise<tebex.TebexBasket> {
+// Java names are 3-16 letters, digits or underscores; Bedrock (Floodgate) names start with a dot.
+const NAME_RE = /^\.?[A-Za-z0-9_]{3,16}$/;
+export const isValidMcName = (n: string) => NAME_RE.test(n);
+
+function clientIp(): string | undefined {
+  const h = headers();
+  const raw = (h.get("x-forwarded-for")?.split(",")[0] ?? h.get("x-real-ip") ?? "").trim();
+  return isIP(raw) ? raw : undefined;
+}
+
+async function newBasket(username?: string): Promise<tebex.TebexBasket> {
   const base = siteUrl();
-  const b = await tebex.createBasket(`${base}/checkout/success`, `${base}/cart`);
+  const b = await tebex.createBasket(`${base}/checkout/success`, `${base}/cart`, { username, ip: clientIp() });
   cookies().set(BASKET_COOKIE, b.ident, cookieOpts());
   return b;
 }
@@ -136,7 +149,28 @@ export async function getCartView(): Promise<CartView> {
   }
 }
 
-export async function addItem(productId: string, quantity: number): Promise<CartView> {
+const NAME_ERRORS = [400, 404, 422];
+
+/** Makes a fresh basket for `username` and carries over whatever was already in the old one. */
+async function basketFor(username: string, old: tebex.TebexBasket | null): Promise<tebex.TebexBasket> {
+  const b = await newBasket(username);
+  const carry = old && !old.complete ? (old.packages ?? []) : [];
+  for (const p of carry) await tebex.addToBasket(b.ident, String(p.id), p.in_basket?.quantity ?? 1);
+  return carry.length ? tebex.getBasket(b.ident) : b;
+}
+
+async function currentBasket(): Promise<tebex.TebexBasket | null> {
+  const ident = cookies().get(BASKET_COOKIE)?.value;
+  if (!ident) return null;
+  try {
+    const b = await tebex.getBasket(ident);
+    return b.complete ? null : b;
+  } catch {
+    return null;
+  }
+}
+
+export async function addItem(productId: string, quantity: number, username?: string): Promise<CartView> {
   const cat = await getCatalog();
   const product = findProduct(cat, productId);
   const currency = cat.currency;
@@ -148,10 +182,38 @@ export async function addItem(productId: string, quantity: number): Promise<Cart
     writeDemo(items);
     return demoView();
   }
+  const needName = { ...empty("tebex", currency), errorCode: "username" as const };
+  const name = (username ?? "").trim();
+  if (name && !isValidMcName(name)) return needName;
   try {
-    const b = await withBasket((ident) => tebex.addToBasket(ident, product.id, qty));
+    let basket = await currentBasket();
+    const current = basket?.username ?? "";
+    if (!name && !current) return needName; // the package is delivered to a player, so a name comes first
+    if (name && name.toLowerCase() !== current.toLowerCase()) {
+      try {
+        basket = await basketFor(name, basket);
+      } catch (e) {
+        if (e instanceof TebexError && NAME_ERRORS.includes(e.status)) return needName;
+        throw e;
+      }
+    }
+    const b = await tebex.addToBasket(basket!.ident, product.id, qty);
     return basketToView(b, currency);
   } catch (e) {
+    return fail(e, "tebex", currency);
+  }
+}
+
+export async function changeUsername(username: string): Promise<CartView> {
+  const currency = getSetting("site").currency;
+  if (!isTebexMode()) return getCartView();
+  const name = username.trim();
+  if (!isValidMcName(name)) return { ...empty("tebex", currency), errorCode: "username" };
+  try {
+    const b = await basketFor(name, await currentBasket());
+    return basketToView(b, currency);
+  } catch (e) {
+    if (e instanceof TebexError && NAME_ERRORS.includes(e.status)) return { ...empty("tebex", currency), errorCode: "username" };
     return fail(e, "tebex", currency);
   }
 }

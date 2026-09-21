@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sameOrigin } from "@/lib/auth";
-import { addItem, applyCartCode, beginCheckout, clearCart, getCartView, removeItem, setQuantity } from "@/lib/cart";
+import { addItem, applyCartCode, beginCheckout, changeUsername, clearCart, getCartView, removeItem, setQuantity } from "@/lib/cart";
 
 export const dynamic = "force-dynamic";
 const noStore = { headers: { "Cache-Control": "no-store" } };
@@ -11,7 +11,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Blocked." }, { status: 403 });
-  let body: { action?: string; id?: unknown; quantity?: unknown; code?: unknown };
+  let body: { action?: string; id?: unknown; quantity?: unknown; code?: unknown; username?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -21,7 +21,9 @@ export async function POST(req: Request) {
   const qty = Number(body.quantity);
   switch (body.action) {
     case "add":
-      return NextResponse.json({ cart: await addItem(id, qty || 1) }, noStore);
+      return NextResponse.json({ cart: await addItem(id, qty || 1, typeof body.username === "string" ? body.username.slice(0, 40) : undefined) }, noStore);
+    case "setUsername":
+      return NextResponse.json({ cart: await changeUsername(String(body.username ?? "").slice(0, 40)) }, noStore);
     case "remove":
       return NextResponse.json({ cart: await removeItem(id) }, noStore);
     case "setQuantity":

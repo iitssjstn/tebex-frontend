@@ -1,0 +1,13 @@
+services:
+  storefront:
+    build: .
+    image: tebex-storefront
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Database, uploaded images, backups and the encryption key. Survives restarts and updates.
+      - storefront-data:/data
+
+volumes:
+  storefront-data:

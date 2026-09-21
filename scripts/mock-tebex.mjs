@@ -11,6 +11,7 @@ const cats = [
 ];
 const all = cats.flatMap((c) => c.packages);
 const baskets = new Map();
+let lastCreate = null;
 const basketView = (b) => ({
   ident: b.ident, complete: false, username: b.username, coupons: [], currency: "EUR",
   base_price: b.items.reduce((n, i) => n + all.find((p) => p.id === i.id).total_price * i.q, 0),
@@ -28,7 +29,8 @@ http.createServer(async (req, res) => {
   if ((m = p.match(/^\/api\/accounts\/([^/]+)(\/.*)?$/)) && m[1] !== TOKEN) return send(res, 404, { detail: "not found" });
   if (p === `/api/accounts/${TOKEN}`) return send(res, 200, { data: { name: "Mock Store", currency: "EUR" } });
   if (p === `/api/accounts/${TOKEN}/categories`) return send(res, 200, { data: cats });
-  if (p === `/api/accounts/${TOKEN}/baskets` && req.method === "POST") { const ident = `bskt${baskets.size + 1}abc`; baskets.set(ident, { ident, items: [], username: null }); return send(res, 200, { data: basketView(baskets.get(ident)) }); }
+  if (p === `/api/accounts/${TOKEN}/baskets` && req.method === "POST") { const j = await body(req); lastCreate = { auth: req.headers.authorization ?? null, body: j }; if (j.username === "nouser") return send(res, 422, { detail: "username not found" }); const ident = `bskt${baskets.size + 1}abc`; baskets.set(ident, { ident, items: [], username: j.username ?? null }); return send(res, 200, { data: basketView(baskets.get(ident)) }); }
+  if (p === "/__last") return send(res, 200, lastCreate);
   if ((m = p.match(/^\/api\/accounts\/[^/]+\/baskets\/([^/]+)$/))) { const b = baskets.get(m[1]); return b ? send(res, 200, { data: basketView(b) }) : send(res, 404, {}); }
   if ((m = p.match(/^\/api\/accounts\/[^/]+\/baskets\/([^/]+)\/auth$/))) return send(res, 200, [{ name: "Minecraft: Java", url: `https://auth.tebex.example/${m[1]}` }]);
   if ((m = p.match(/^\/api\/baskets\/([^/]+)\/packages$/)) && req.method === "POST") { const b = baskets.get(m[1]); if (!b) return send(res, 404, {}); const j = await body(req); const id = Number(j.package_id); if (!all.some((x) => x.id === id)) return send(res, 422, { detail: "bad package" }); const it = b.items.find((i) => i.id === id); if (it) it.q += j.quantity || 1; else b.items.push({ id, q: j.quantity || 1 }); return send(res, 200, basketView(b)); }

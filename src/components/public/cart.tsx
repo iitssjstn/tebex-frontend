@@ -5,7 +5,7 @@ import { formatMoney } from "@/lib/utils";
 import { CartIcon } from "./Icons";
 
 export type CartItem = { id: string; name: string; image: string; quantity: number; linePrice: number; canChangeQuantity: boolean };
-export type CartView = { source: "tebex" | "demo"; currency: string; items: CartItem[]; total: number; count: number; coupons: string[]; needsAuth: boolean; username: string; error?: string };
+export type CartView = { source: "tebex" | "demo"; currency: string; items: CartItem[]; total: number; count: number; coupons: string[]; needsAuth: boolean; username: string; error?: string; errorCode?: "username" };
 
 export type CartConfig = {
   enabled: boolean;
@@ -24,7 +24,8 @@ type Ctx = {
   busy: boolean;
   open: boolean;
   setOpen: (v: boolean) => void;
-  add: (id: string, quantity?: number) => Promise<void>;
+  add: (id: string, quantity?: number, username?: string) => Promise<void>;
+  askName: () => void;
   remove: (id: string) => Promise<void>;
   setQty: (id: string, quantity: number) => Promise<void>;
   applyCode: (code: string) => Promise<string>;
@@ -48,6 +49,7 @@ export function CartProvider({ config, children }: { config: CartConfig; childre
   const [cart, setCart] = useState<CartView | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState<{ id?: string; qty: number; error: boolean } | null>(null);
 
   useEffect(() => {
     fetch("/api/cart", { cache: "no-store" })
@@ -60,7 +62,7 @@ export function CartProvider({ config, children }: { config: CartConfig; childre
     setBusy(true);
     try {
       const j = await post(body);
-      if (j.cart) setCart(j.cart);
+      if (j.cart && !j.cart.errorCode) setCart(j.cart);
       return j;
     } catch {
       setCart((c) => (c ? { ...c, error: "Something went wrong. Please try again." } : c));
@@ -77,9 +79,14 @@ export function CartProvider({ config, children }: { config: CartConfig; childre
       busy,
       open,
       setOpen,
-      add: async (id, quantity = 1) => {
-        const j = await run({ action: "add", id, quantity });
-        if (j.cart && !j.cart.error) setOpen(true);
+      askName: () => setDialog({ qty: 1, error: false }),
+      add: async (id, quantity = 1, username) => {
+        const j = await run({ action: "add", id, quantity, username });
+        if (j.cart?.errorCode === "username") setDialog({ id, qty: quantity, error: !!username });
+        else if (j.cart && !j.cart.error) {
+          setDialog(null);
+          setOpen(true);
+        }
       },
       remove: async (id) => void (await run({ action: "remove", id })),
       setQty: async (id, quantity) => void (await run({ action: "setQuantity", id, quantity })),
@@ -102,10 +109,18 @@ export function CartProvider({ config, children }: { config: CartConfig; childre
     [config, cart, busy, open, run]
   );
 
+  async function submitName(name: string) {
+    if (dialog?.id) return void (await value.add(dialog.id, dialog.qty, name));
+    const j = await run({ action: "setUsername", username: name });
+    if (j.cart?.errorCode === "username") setDialog({ qty: 1, error: true });
+    else setDialog(null);
+  }
+
   return (
     <CartCtx.Provider value={value}>
       {children}
       <CartDrawer />
+      {dialog ? <NameDialog error={dialog.error} busy={busy} onSubmit={submitName} onClose={() => setDialog(null)} /> : null}
     </CartCtx.Provider>
   );
 }
@@ -142,7 +157,7 @@ export function AddToCart({ productId, disableQuantity = false, withQuantity = f
 }
 
 export function CartContents() {
-  const { config, cart, busy, remove, setQty, applyCode, checkout } = useCart();
+  const { config, cart, busy, remove, setQty, applyCode, checkout, askName } = useCart();
   const [code, setCode] = useState("");
   const [note, setNote] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [auth, setAuth] = useState<{ name: string; url: string }[] | null>(null);
@@ -176,6 +191,12 @@ export function CartContents() {
 
   return (
     <div>
+      {cart.source === "tebex" && cart.username ? (
+        <p className="muted" style={{ margin: "0 0 .6rem" }}>
+          {L.playingAs} <b style={{ color: "var(--c-text)" }}>{cart.username}</b> &middot;{" "}
+          <button type="button" onClick={askName} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textDecoration: "underline", color: "inherit" }}>{L.usernameChange}</button>
+        </p>
+      ) : null}
       {cart.items.map((i) => (
         <div className="line" key={i.id}>
           {i.image ? <img className="thumb" src={i.image} alt="" loading="lazy" /> : <span className="thumb" />}
@@ -255,6 +276,38 @@ function CartDrawer() {
           <a className="muted" href="/cart" onClick={() => setOpen(false)}>{config.labels.cart}</a>
         </footer>
       </aside>
+    </>
+  );
+}
+
+function NameDialog({ error, busy, onSubmit, onClose }: { error: boolean; busy: boolean; onSubmit: (name: string) => void; onClose: () => void }) {
+  const { config } = useCart();
+  const L = config.labels;
+  const [name, setName] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const valid = /^\.?[A-Za-z0-9_]{3,16}$/.test(name.trim());
+  return (
+    <>
+      <div className="drawer-back" style={{ zIndex: 70 }} onClick={onClose} />
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="name-title">
+        <h2 id="name-title">{L.usernameTitle}</h2>
+        <p className="muted" style={{ margin: ".6rem 0 1rem" }}>{L.usernameText}</p>
+        <form onSubmit={(e) => { e.preventDefault(); if (valid && !busy) onSubmit(name.trim()); }}>
+          <label className="sr-only" htmlFor="mc-name">{L.usernamePlaceholder}</label>
+          <input ref={ref} id="mc-name" className="input" style={{ width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} placeholder={L.usernamePlaceholder} maxLength={17} autoComplete="off" autoCapitalize="off" spellCheck={false} aria-invalid={error} aria-describedby={error ? "name-err" : undefined} />
+          {error ? <p id="name-err" className="err" role="alert" style={{ margin: ".5rem 0 0" }}>{L.usernameInvalid}</p> : null}
+          <div style={{ display: "flex", gap: ".6rem", marginTop: "1rem" }}>
+            <button className="btn" disabled={!valid || busy}>{L.usernameContinue}</button>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>{L.cancel}</button>
+          </div>
+        </form>
+      </div>
     </>
   );
 }
