@@ -24,6 +24,12 @@ export type Product = {
   badge: string;
   sortOrder: number;
   displayDescription: string;
+  /** Tebex marks the package as a subscription (auto-renewing). */
+  recurring: boolean;
+  /** Products that share a group name are shown as one product with a duration choice. */
+  groupName: string;
+  optionLabel: string;
+  optionMonths: number;
 };
 export type Category = { id: string; slug: string; name: string; description: string; image: string; order: number; visible: boolean; products: Product[] };
 export type Catalog = { source: "tebex" | "demo"; currency: string; categories: Category[]; error?: string };
@@ -36,7 +42,7 @@ export const clearCatalogCache = () => {
   cache().tebex = undefined;
 };
 
-type ProductOverride = { package_id: string; featured: number; visible: number; homepage: number; badge: string; sort_order: number; image_url: string; display_description: string };
+type ProductOverride = { package_id: string; featured: number; visible: number; homepage: number; badge: string; sort_order: number; image_url: string; display_description: string; group_name: string; option_label: string; option_months: number };
 type CategoryOverride = { category_id: string; visible: number; sort_order: number | null; image_url: string; display_description: string };
 
 function pickImage(p: TebexPackage): string {
@@ -76,6 +82,10 @@ export function mapTebex(categories: TebexCategory[], fallbackCurrency: string):
           badge: "",
           sortOrder: 0,
           displayDescription: "",
+          recurring: p.type === "subscription",
+          groupName: "",
+          optionLabel: "",
+          optionMonths: 0,
         };
       });
       return { id: String(c.id), slug, name: c.name, description: c.description ?? "", image: c.image_url ?? "", order: c.order ?? i, visible: true, products };
@@ -114,6 +124,10 @@ function demoCategories(currency: string): Category[] {
         badge: "",
         sortOrder: 0,
         displayDescription: "",
+        recurring: false,
+        groupName: "",
+        optionLabel: "",
+        optionMonths: 0,
       })),
   }));
 }
@@ -128,7 +142,7 @@ function applyOverrides(categories: Category[]): Category[] {
         .map((p) => {
           const o = pOv.get(p.id);
           if (!o) return p;
-          return { ...p, featured: !!o.featured, homepage: !!o.homepage, visible: !!o.visible, badge: o.badge, sortOrder: o.sort_order, image: o.image_url || p.image, displayDescription: o.display_description };
+          return { ...p, featured: !!o.featured, homepage: !!o.homepage, visible: !!o.visible, badge: o.badge, sortOrder: o.sort_order, image: o.image_url || p.image, displayDescription: o.display_description, groupName: o.group_name, optionLabel: o.option_label, optionMonths: o.option_months };
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.order - b.order || a.name.localeCompare(b.name));
       return { ...c, visible: co ? !!co.visible : true, order: co?.sort_order ?? c.order, image: co?.image_url || c.image, description: co?.display_description || c.description, products };
@@ -180,4 +194,52 @@ export function findProduct(cat: Catalog, idOrSlug: string): Product | undefined
 
 export function productDescriptionHtml(p: Product): string {
   return cleanHtml(p.displayDescription || p.description);
+}
+
+// ---------- duration options: several Tebex packages shown as one product ----------
+export type Entry = { key: string; name: string; primary: Product; options: Product[]; fromPrice: number; featured: boolean; homepage: boolean };
+
+/** Products with the same group name (for example "VIP") become one entry whose options are the durations. */
+export function collapseGroups(products: Product[]): Entry[] {
+  const out: Entry[] = [];
+  const groups = new Map<string, Entry>();
+  for (const p of products) {
+    const g = p.groupName.trim();
+    if (!g) {
+      out.push({ key: p.id, name: p.name, primary: p, options: [p], fromPrice: p.price, featured: p.featured, homepage: p.homepage });
+      continue;
+    }
+    const existing = groups.get(g.toLowerCase());
+    if (existing) {
+      existing.options.push(p);
+      continue;
+    }
+    const e: Entry = { key: `g:${g.toLowerCase()}`, name: g, primary: p, options: [p], fromPrice: p.price, featured: false, homepage: false };
+    groups.set(g.toLowerCase(), e);
+    out.push(e);
+  }
+  for (const e of out) {
+    if (e.options.length > 1) {
+      e.options.sort((a, b) => (a.optionMonths || 9999) - (b.optionMonths || 9999) || a.price - b.price);
+      e.primary = { ...e.options[0], image: e.options.find((o) => o.image)?.image ?? "", badge: e.options.find((o) => o.badge)?.badge ?? "" };
+    }
+    e.fromPrice = Math.min(...e.options.map((o) => o.price));
+    e.featured = e.options.some((o) => o.featured);
+    e.homepage = e.options.some((o) => o.homepage);
+  }
+  return out;
+}
+
+/** Percentage saved per month compared with the shortest option, or 0 when it cannot be worked out. */
+export function savePercent(option: Product, options: Product[]): number {
+  const base = options.find((o) => o.optionMonths > 0);
+  if (!base || option.optionMonths <= base.optionMonths || option.price <= 0) return 0;
+  const pct = Math.round((1 - option.price / option.optionMonths / (base.price / base.optionMonths)) * 100);
+  return pct > 0 ? pct : 0;
+}
+
+export function groupOf(catalog: Catalog, product: Product): Product[] {
+  const g = product.groupName.trim().toLowerCase();
+  if (!g) return [product];
+  return collapseGroups(allProducts(catalog).filter((p) => p.groupName.trim().toLowerCase() === g))[0]?.options ?? [product];
 }

@@ -12,9 +12,10 @@ import { formatMoney } from "@/lib/utils";
 export type ProductRow = {
   id: string; demoId: number | null; name: string; price: number; originalPrice: number | null; currency: string; categoryId: string; categoryName: string; image: string; description: string;
   featured: boolean; homepage: boolean; visible: boolean; badge: string; sortOrder: number; displayDescription: string;
+  groupName: string; optionLabel: string; optionMonths: number; recurring: boolean;
 };
 
-const blank = (categoryId: string): ProductRow => ({ id: "", demoId: null, name: "", price: 4.99, originalPrice: null, currency: "", categoryId, categoryName: "", image: "", description: "", featured: false, homepage: false, visible: true, badge: "", sortOrder: 0, displayDescription: "" });
+const blank = (categoryId: string): ProductRow => ({ id: "", demoId: null, name: "", price: 4.99, originalPrice: null, currency: "", categoryId, categoryName: "", image: "", description: "", featured: false, homepage: false, visible: true, badge: "", sortOrder: 0, displayDescription: "", groupName: "", optionLabel: "", optionMonths: 0, recurring: false });
 
 export function ProductsManager({ rows, source, error, categories }: { rows: ProductRow[]; source: "tebex" | "demo"; error?: string; categories: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -52,7 +53,7 @@ export function ProductsManager({ rows, source, error, categories }: { rows: Pro
             {shown.map((r) => (
               <tr key={r.id}>
                 <td>{r.image ? <img className="thumb" src={r.image} alt="" /> : <span className="thumb" style={{ display: "block" }} />}</td>
-                <td><b>{r.name}</b>{r.badge ? <> <Tag kind="blue">{r.badge}</Tag></> : null}</td>
+                <td><b>{r.name}</b>{r.badge ? <> <Tag kind="blue">{r.badge}</Tag></> : null}{r.recurring ? <> <Tag>Subscription</Tag></> : null}{r.groupName ? <div><Tag kind="blue">{r.groupName}{r.optionLabel ? `: ${r.optionLabel}` : ""}</Tag></div> : null}</td>
                 <td>{r.id}</td>
                 <td>{formatMoney(r.price, r.currency || "EUR")}{!demo ? <div><Tag>Managed by Tebex</Tag></div> : null}</td>
                 <td>{r.categoryName}</td>
@@ -95,7 +96,7 @@ function Editor({ row, demo, categories, onClose, onSaved }: { row: ProductRow; 
       if (!r.ok) { setBusy(false); return toast(r.error, "e"); }
       id = `demo-${r.data!.id}`;
     }
-    const r2 = await saveProductOverrideAction(id, { featured: v.featured, homepage: v.homepage, visible: v.visible, badge: v.badge, sortOrder: v.sortOrder, imageUrl: demo ? "" : v.image, displayDescription: demo ? "" : v.displayDescription });
+    const r2 = await saveProductOverrideAction(id, { featured: v.featured, homepage: v.homepage, visible: v.visible, badge: v.badge, sortOrder: v.sortOrder, imageUrl: demo ? "" : v.image, displayDescription: demo ? "" : v.displayDescription, groupName: v.groupName, optionLabel: v.optionLabel, optionMonths: v.optionMonths });
     setBusy(false);
     if (!r2.ok) return toast(r2.error, "e");
     toast("Saved");
@@ -132,6 +133,15 @@ function Editor({ row, demo, categories, onClose, onSaved }: { row: ProductRow; 
           <div className="f"><span className="lbl">Image{!demo ? " (overrides the Tebex image)" : ""}</span><ImageField value={v.image} onChange={(u) => set("image", u)} /></div>
           <div className="f"><label htmlFor="pb">Badge</label><input id="pb" type="text" value={v.badge} maxLength={24} onChange={(e) => set("badge", e.target.value)} placeholder="e.g. Popular" /></div>
           <div className="f"><label htmlFor="ps">Sort order</label><input id="ps" type="number" value={v.sortOrder} onChange={(e) => set("sortOrder", Number(e.target.value))} /><small>Lower numbers come first.</small></div>
+          <div className="card" style={{ background: "#fafbfc" }}>
+            <b>Duration options</b>
+            <p className="lead" style={{ margin: ".2rem 0 .8rem", fontSize: ".85rem" }}>Give every duration of the same product the same group name (for example VIP). The store then shows one product with a choice between the durations.</p>
+            <div className="f"><label htmlFor="pg">Group name</label><input id="pg" type="text" value={v.groupName} maxLength={40} onChange={(e) => set("groupName", e.target.value)} placeholder="e.g. VIP (empty = not grouped)" /></div>
+            <div className="grid2">
+              <div className="f"><label htmlFor="pl">Option label</label><input id="pl" type="text" value={v.optionLabel} maxLength={30} onChange={(e) => set("optionLabel", e.target.value)} placeholder="e.g. 3 months" /></div>
+              <div className="f"><label htmlFor="pm">Months</label><input id="pm" type="number" min={0} max={120} value={v.optionMonths} onChange={(e) => set("optionMonths", Number(e.target.value))} /><small>Used to sort options and to work out the saving percentage.</small></div>
+            </div>
+          </div>
           <label className="chk f"><input type="checkbox" checked={v.visible} onChange={(e) => set("visible", e.target.checked)} />Visible in the store</label>
           <label className="chk f"><input type="checkbox" checked={v.featured} onChange={(e) => set("featured", e.target.checked)} />Featured</label>
           <label className="chk f"><input type="checkbox" checked={v.homepage} onChange={(e) => set("homepage", e.target.checked)} />Show on the homepage</label>

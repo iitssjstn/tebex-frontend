@@ -69,7 +69,7 @@ describe("catalog mapping", () => {
 describe("migrations", () => {
   it("apply on an empty database and are idempotent", async () => {
     const { db, migrate } = await import("../src/lib/db");
-    expect(db().prepare("SELECT COUNT(*) AS n FROM _migrations").get()).toEqual({ n: 1 });
+    expect(db().prepare("SELECT COUNT(*) AS n FROM _migrations").get()).toEqual({ n: 2 });
     expect(migrate(db())).toEqual([]);
   });
 });
@@ -86,5 +86,25 @@ describe("media", () => {
     const row = await saveUpload(png, "a b.png");
     expect(row.file).toMatch(/^[a-f0-9]{16}\.webp$/);
     expect(row.mime).toBe("image/webp");
+  });
+});
+
+describe("duration groups", () => {
+  const base = { slug: "s", description: "", currency: "EUR", image: "", categoryId: "1", categoryName: "Ranks", order: 0, disableQuantity: false, featured: false, homepage: false, visible: true, badge: "", sortOrder: 0, displayDescription: "", recurring: false, originalPrice: null };
+  const mk = (id: string, price: number, months: number, group = "VIP") => ({ ...base, id, name: `VIP ${months}`, price, groupName: group, optionLabel: `${months} months`, optionMonths: months });
+  it("collapses products with the same group name and sorts by duration", async () => {
+    const { collapseGroups } = await import("../src/lib/catalog");
+    const e = collapseGroups([mk("3", 25, 12), mk("1", 5, 1), mk("2", 12, 3), { ...mk("9", 3, 0, ""), name: "Solo" }]);
+    expect(e).toHaveLength(2);
+    expect(e[0].name).toBe("VIP");
+    expect(e[0].options.map((o) => o.id)).toEqual(["1", "2", "3"]);
+    expect(e[0].fromPrice).toBe(5);
+  });
+  it("computes the saving against the shortest option", async () => {
+    const { savePercent } = await import("../src/lib/catalog");
+    const opts = [mk("1", 5, 1), mk("2", 12, 3), mk("3", 30, 12)];
+    expect(savePercent(opts[0], opts)).toBe(0);
+    expect(savePercent(opts[1], opts)).toBe(20);
+    expect(savePercent(opts[2], opts)).toBe(50);
   });
 });

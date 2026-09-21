@@ -118,6 +118,9 @@ const ProductPatch = z.object({
   sortOrder: z.coerce.number().int().min(-9999).max(9999),
   imageUrl: z.string().max(2000).refine((v) => v === "" || /^(\/media\/[\w.-]+|https?:\/\/)/.test(v)),
   displayDescription: z.string().max(20000),
+  groupName: z.string().trim().max(40).default(""),
+  optionLabel: z.string().trim().max(30).default(""),
+  optionMonths: z.coerce.number().int().min(0).max(120).default(0),
 });
 export async function saveProductOverrideAction(packageId: string, patch: unknown): Promise<Result> {
   return guard("store", () => {
@@ -125,12 +128,13 @@ export async function saveProductOverrideAction(packageId: string, patch: unknow
     const p = ProductPatch.parse(patch);
     db()
       .prepare(
-        `INSERT INTO product_overrides (package_id, featured, visible, homepage, badge, sort_order, image_url, display_description, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO product_overrides (package_id, featured, visible, homepage, badge, sort_order, image_url, display_description, group_name, option_label, option_months, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(package_id) DO UPDATE SET featured=excluded.featured, visible=excluded.visible, homepage=excluded.homepage, badge=excluded.badge,
-           sort_order=excluded.sort_order, image_url=excluded.image_url, display_description=excluded.display_description, updated_at=excluded.updated_at`
+           sort_order=excluded.sort_order, image_url=excluded.image_url, display_description=excluded.display_description,
+           group_name=excluded.group_name, option_label=excluded.option_label, option_months=excluded.option_months, updated_at=excluded.updated_at`
       )
-      .run(id, +p.featured, +p.visible, +p.homepage, p.badge.trim(), p.sortOrder, p.imageUrl, p.displayDescription);
+      .run(id, +p.featured, +p.visible, +p.homepage, p.badge.trim(), p.sortOrder, p.imageUrl, p.displayDescription, p.groupName, p.optionLabel, p.optionMonths);
     refresh();
   });
 }

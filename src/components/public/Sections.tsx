@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { allProducts, getCatalog, type Catalog } from "@/lib/catalog";
+import { allProducts, collapseGroups, getCatalog, type Catalog } from "@/lib/catalog";
 import { cleanHtml } from "@/lib/sanitize";
 import { getSetting } from "@/lib/settings";
 import { isExternal, safeHref } from "@/lib/utils";
@@ -98,13 +98,13 @@ function SectionView({ section, catalog }: { section: Section; catalog: Catalog 
     case "featuredProducts": {
       const c: SectionConfig<"featuredProducts"> = SECTION_CONFIG.featuredProducts.parse(section.config);
       const all = catalog ? allProducts(catalog) : [];
-      const ranked = [...all].sort((a, b) => Number(b.homepage || b.featured) - Number(a.homepage || a.featured));
+      const ranked = collapseGroups(all).sort((a, b) => Number(b.homepage || b.featured) - Number(a.homepage || a.featured));
       const items = ranked.slice(0, c.count);
       return (
         <Shell cfg={c} id={section.id}>
           <Head title={c.title} subtitle={c.subtitle} />
           {items.length ? (
-            <div className="featured-grid">{items.map((p) => <ProductCard key={p.id} p={p} showCategory />)}</div>
+            <div className="featured-grid">{items.map((e) => <ProductCard key={e.key} entry={e} showCategory />)}</div>
           ) : (
             <p className="empty">{labels.emptyCategory}</p>
           )}

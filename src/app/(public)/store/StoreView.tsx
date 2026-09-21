@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ProductCard } from "@/components/public/ProductCard";
-import { allProducts, getCatalog } from "@/lib/catalog";
+import { allProducts, collapseGroups, getCatalog } from "@/lib/catalog";
 import { getSetting } from "@/lib/settings";
 import { plainText } from "@/lib/sanitize";
 import { StoreControls } from "./StoreControls";
@@ -16,18 +16,18 @@ export async function StoreView({ categorySlug, searchParams }: { categorySlug?:
   const sort = ["featured", "price-asc", "price-desc", "name"].includes(searchParams.sort ?? "") ? (searchParams.sort as string) : store.defaultSort;
   const q = (searchParams.q ?? "").trim().toLowerCase().slice(0, 80);
 
-  let products = category ? category.products : allProducts(catalog);
-  if (q) products = products.filter((p) => p.name.toLowerCase().includes(q) || plainText(p.displayDescription || p.description).toLowerCase().includes(q));
-  products = [...products];
-  if (sort === "price-asc") products.sort((a, b) => a.price - b.price);
-  else if (sort === "price-desc") products.sort((a, b) => b.price - a.price);
-  else if (sort === "name") products.sort((a, b) => a.name.localeCompare(b.name));
-  else products.sort((a, b) => Number(b.featured) - Number(a.featured));
+  let entries = collapseGroups(category ? category.products : allProducts(catalog));
+  if (q) entries = entries.filter((e) => e.name.toLowerCase().includes(q) || e.options.some((p) => p.name.toLowerCase().includes(q) || plainText(p.displayDescription || p.description).toLowerCase().includes(q)));
+  entries = [...entries];
+  if (sort === "price-asc") entries.sort((a, b) => a.fromPrice - b.fromPrice);
+  else if (sort === "price-desc") entries.sort((a, b) => b.fromPrice - a.fromPrice);
+  else if (sort === "name") entries.sort((a, b) => a.name.localeCompare(b.name));
+  else entries.sort((a, b) => Number(b.featured) - Number(a.featured));
 
   const per = store.productsPerPage;
-  const pages = Math.max(1, Math.ceil(products.length / per));
+  const pages = Math.max(1, Math.ceil(entries.length / per));
   const page = Math.min(pages, Math.max(1, Number(searchParams.page) || 1));
-  const shown = products.slice((page - 1) * per, page * per);
+  const shown = entries.slice((page - 1) * per, page * per);
   const qs = (n: number) => {
     const sp = new URLSearchParams();
     if (searchParams.q) sp.set("q", searchParams.q);
@@ -57,7 +57,7 @@ export async function StoreView({ categorySlug, searchParams }: { categorySlug?:
         </Suspense>
       </div>
       {shown.length ? (
-        <div className="grid" data-style={store.productStyle}>{shown.map((p) => <ProductCard key={p.id} p={p} showCategory={!category} />)}</div>
+        <div className="grid" data-style={store.productStyle}>{shown.map((e) => <ProductCard key={e.key} entry={e} showCategory={!category} />)}</div>
       ) : (
         <p className="empty">{q ? labels.noResults : labels.emptyCategory}</p>
       )}

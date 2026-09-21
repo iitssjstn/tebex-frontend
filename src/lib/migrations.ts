@@ -98,4 +98,12 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "002_product_duration_groups",
+    sql: `
+      ALTER TABLE product_overrides ADD COLUMN group_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE product_overrides ADD COLUMN option_label TEXT NOT NULL DEFAULT '';
+      ALTER TABLE product_overrides ADD COLUMN option_months INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

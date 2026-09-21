@@ -25,6 +25,10 @@ export default async function ProductsPage() {
       badge: p.badge,
       sortOrder: p.sortOrder,
       displayDescription: p.displayDescription,
+      groupName: p.groupName,
+      optionLabel: p.optionLabel,
+      optionMonths: p.optionMonths,
+      recurring: p.recurring,
     }))
   );
   return <ProductsManager rows={rows} source={catalog.source} error={catalog.error} categories={catalog.categories.map((c) => ({ id: c.id, name: c.name }))} />;

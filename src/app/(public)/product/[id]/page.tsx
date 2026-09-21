@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AddToCart } from "@/components/public/cart";
-import { findProduct, getCatalog, productDescriptionHtml } from "@/lib/catalog";
+import { OptionPicker } from "@/components/public/OptionPicker";
+import { toOpts } from "@/components/public/ProductCard";
+import { findProduct, getCatalog, groupOf, productDescriptionHtml } from "@/lib/catalog";
 import { getSetting } from "@/lib/settings";
 import { plainText } from "@/lib/sanitize";
 import { formatMoney } from "@/lib/utils";
@@ -23,6 +25,9 @@ export default async function ProductPage({ params }: { params: { id: string } }
   const catalog = await getCatalog();
   const p = findProduct(catalog, params.id);
   if (!p) notFound();
+  const group = groupOf(catalog, p);
+  const grouped = group.length > 1;
+  const title = grouped ? p.groupName : p.name;
   const discounted = p.originalPrice !== null && p.originalPrice > p.price;
   const cat = catalog.categories.find((c) => c.id === p.categoryId);
   return (
@@ -36,13 +41,22 @@ export default async function ProductPage({ params }: { params: { id: string } }
           <Link href="/store">{store.title}</Link>
           {cat ? <> / <Link href={`/store/${cat.slug}`}>{cat.name}</Link></> : null}
         </p>
-        <h1>{p.name}</h1>
-        <div className="price" style={{ marginTop: "1rem" }}>
-          <strong>{formatMoney(p.price, p.currency, store.currencyDisplay)}</strong>
-          {discounted && store.showOriginalPrice ? <s>{formatMoney(p.originalPrice!, p.currency, store.currencyDisplay)}</s> : null}
-          {discounted && store.showDiscounts ? <span className="save">{labels.discountLabel} {formatMoney(p.originalPrice! - p.price, p.currency, store.currencyDisplay)}</span> : null}
-        </div>
-        {cart.enabled ? <AddToCart productId={p.id} disableQuantity={p.disableQuantity} withQuantity /> : null}
+        <h1>{title}</h1>
+        {grouped ? (
+          <div style={{ marginTop: "1rem" }}>
+            <OptionPicker options={toOpts(group)} initialId={p.id} currencyDisplay={store.currencyDisplay} cartEnabled={cart.enabled} labels={labels} big />
+          </div>
+        ) : (
+          <>
+            <div className="price" style={{ marginTop: "1rem" }}>
+              <strong>{formatMoney(p.price, p.currency, store.currencyDisplay)}</strong>
+              {discounted && store.showOriginalPrice ? <s>{formatMoney(p.originalPrice!, p.currency, store.currencyDisplay)}</s> : null}
+              {discounted && store.showDiscounts ? <span className="save">{labels.discountLabel} {formatMoney(p.originalPrice! - p.price, p.currency, store.currencyDisplay)}</span> : null}
+            </div>
+            {p.recurring && labels.recurringNote ? <p className="muted small" style={{ margin: ".3rem 0 0" }}>{labels.recurringNote}</p> : null}
+            {cart.enabled ? <AddToCart productId={p.id} disableQuantity={p.disableQuantity} withQuantity /> : null}
+          </>
+        )}
         <div className="prose" dangerouslySetInnerHTML={{ __html: productDescriptionHtml(p) }} />
       </div>
     </div>

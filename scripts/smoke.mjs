@@ -116,6 +116,20 @@ ok("oversize rejected", (await req("/api/admin/media", { method: "POST", body: f
 ok("path traversal blocked", (await req("/media/..%2f..%2fapp.secret")).status === 404);
 ok("cross-site upload blocked", (await req("/api/admin/media", { method: "POST", body: fd, headers: { Origin: "https://evil.example" } })).status === 403);
 
+console.log("--- duration options");
+const patch = (extra) => ({ featured: false, homepage: false, visible: true, badge: "", sortOrder: 0, imageUrl: "", displayDescription: "", groupName: "", optionLabel: "", optionMonths: 0, ...extra });
+await action("saveProductOverrideAction", ["101", patch({ groupName: "VIP", optionLabel: "1 month", optionMonths: 1 })]);
+await action("saveProductOverrideAction", ["102", patch({ groupName: "VIP", optionLabel: "3 months", optionMonths: 3 })]);
+const grouped = await (await req("/store")).text();
+ok("grouped packages show as one product", (grouped.match(/role="radiogroup"/g) ?? []).length === 1 && grouped.includes("1 month") && grouped.includes("3 months"), "radiogroups=" + (grouped.match(/role="radiogroup"/g) ?? []).length);
+ok("ungrouped product still listed", grouped.includes("Sky Crate Key"));
+const gp = await (await req("/product/102")).text();
+ok("product page shows the duration choice", gp.includes('role="radiogroup"') && gp.includes("<h1>VIP</h1>"));
+ok("saving compared to monthly is shown", /Save \d+% compared to monthly/.test(gp) || /Save \d+% compared to monthly/.test(grouped));
+await action("saveProductOverrideAction", ["101", patch({})]);
+await action("saveProductOverrideAction", ["102", patch({})]);
+ok("removing the group splits them again", !(await (await req("/store")).text()).includes('role="radiogroup"'));
+
 console.log("--- cart + checkout (Tebex mock)");
 const j = { "Content-Type": "application/json", Origin: BASE };
 const cartJar = jar; jar = {};
